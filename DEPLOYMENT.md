@@ -16,7 +16,7 @@
    Region: Oregon (US West)
    Branch: main
    Root Directory: backend
-   Runtime: Python 3
+   Runtime: Python 3 (auto-detected)
    Build Command: pip install -r requirements.txt
    Start Command: gunicorn app:app --bind 0.0.0.0:$PORT
    ```
@@ -130,6 +130,8 @@ npm start
 - Check environment variables are set correctly
 - Verify Google API key is valid and has credits
 - Monitor logs in Render dashboard
+- If deployment fails with package issues, the requirements.txt contains exact working versions
+- For package conflicts, try clearing Render cache in dashboard settings
 
 **Frontend Issues:**
 - Ensure REACT_APP_API_URL points to correct backend
