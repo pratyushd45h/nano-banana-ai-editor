@@ -286,61 +286,98 @@ def edit_image():
             traceback.print_exc()
             return jsonify({'error': f'Masked image decode error: {str(mask_err)}'}), 400
 
-        # Analyze the mask to ensure it has yellow pixels (validation)
+        # Analyze the mask to detect yellow doodle pixels with better sensitivity
         has_yellow = False
         try:
             # Convert to RGB if not already
             if masked_image.mode != 'RGB':
                 masked_image = masked_image.convert('RGB')
             
-            # Sample pixels to detect yellow mask
+            # Sample pixels to detect yellow doodle markings with improved detection
             pixels = list(masked_image.getdata())
-            yellow_threshold = 200  # Threshold for detecting yellow pixels (R and G high, B low)
             yellow_count = 0
+            total_checked = 0
             
             for i, pixel in enumerate(pixels):
-                # Check for first 10,000 pixels to save time
-                if i > 10000:
+                # Check more pixels for better detection, but limit for performance
+                if i > 25000:  # Increased from 10,000 for better coverage
                     break
                     
                 r, g, b = pixel
-                # Detect yellow pixels (high R, high G, low B)
-                if r > yellow_threshold and g > yellow_threshold and b < 100:
+                total_checked += 1
+                
+                # More sensitive yellow detection for doodle markings
+                # Method 1: Traditional high R+G, low B
+                is_yellow_traditional = (r > 180 and g > 180 and b < 120)
+                
+                # Method 2: Yellow-ish colors (including semi-transparent overlays)
+                is_yellow_ish = (r > 200 and g > 200 and b < 160 and (r + g) > (b * 2.5))
+                
+                # Method 3: Detect bright/highlighted pixels that could be yellow markings
+                is_bright_warm = (r > 220 and g > 200 and r > b and g > b)
+                
+                if is_yellow_traditional or is_yellow_ish or is_bright_warm:
                     yellow_count += 1
                     
-            print(f"Detected {yellow_count} yellow pixels in mask")
-            has_yellow = yellow_count > 50  # Consider mask valid if it has enough yellow pixels
+            yellow_percentage = (yellow_count / total_checked) * 100 if total_checked > 0 else 0
+            print(f"Detected {yellow_count} yellow/bright pixels out of {total_checked} checked ({yellow_percentage:.2f}%)")
+            
+            # Consider mask valid if it has enough yellow pixels (lowered threshold for sensitivity)
+            has_yellow = yellow_count > 25 or yellow_percentage > 0.1
+            
         except Exception as color_err:
             print(f"Error analyzing mask colors: {color_err}")
         
-        # Create enhanced master prompt with shape recognition and precise instructions
-        master_prompt = "Image Editing Task: Analyze the yellow shapes, objects, and regions marked with bright yellow color in this image, then REPLACE the bright yellow colored areas in this image with"
+        # Create enhanced master prompt with organic doodle recognition and contextual fitting
+        master_prompt = "Image Editing Task: Analyze this image to understand the scene, objects, and people. Look for yellow doodle markings that indicate where to make changes. REPLACE ONLY the yellow-marked areas with"
         
         shape_recognition = """
-        Shape Recognition Instructions:
-        1. Identify the geometric shapes of yellow-marked areas, and recognize real world objects they correspond to
-        2. Recognize what objects or body parts are highlighted by the yellow mask. only yellow mask not any other color
-        3. The mask is kind of hand drawn using mouse like a doodle in slightly irregular shapes and lines in less transparent yellow color
-        4. Understand the context and relationship of marked areas to surrounding elements, objects, body parts, and scene 
-        5. Try to regonize the doodled shapes as accurately as possible in the real world context
+        Organic Doodle Recognition & Context Analysis:
+        1. SCENE ANALYSIS: First understand what's in the image - people, objects, setting, lighting, style
+        2. DOODLE INTERPRETATION: The yellow marks are hand-drawn doodles that may be rough/imperfect but represent real objects:
+           - Curved lines around neck area = necklace, chain, collar, scarf
+           - Lines on face = glasses, makeup, tattoo, face paint
+           - Shapes on body = clothing items, accessories, body art
+           - Rough circles = buttons, badges, jewelry, decorations
+           - Organic shapes = natural objects that fit the context
+        3. CONTEXTUAL FITTING: Match the generated object to the scene:
+           - If person is formal → elegant jewelry, professional accessories
+           - If person is casual → simple accessories, everyday items
+           - If outdoor scene → appropriate weather gear, outdoor accessories
+           - Match the style, era, and mood of the original image
+        4. INTELLIGENT SIZING: Scale objects naturally to human proportions and scene perspective
+        5. MATERIAL & STYLE MATCHING: Make objects look like they belong in that lighting and setting
         """
         
         precision_instructions = """
-        Precision Requirements:
-        - ONLY modify pixels that were originally marked with bright yellow color
-        - Preserve lighting, shadows, and perspective of the surrounding unchanged areas
-        - Ensure seamless integration between new content and existing image elements
+        Advanced Precision Requirements:
+        - ONLY modify pixels within the yellow doodle boundaries
+        - INTERPRET the doodle shape as the intended real-world object based on location and context
+        - If doodle is rough/imperfect, create a clean, realistic version of what was intended
+        - BLEND seamlessly with existing lighting, shadows, and image style
+        - Maintain realistic proportions and perspective
+        - Consider the person's style, age, setting to choose appropriate materials/colors
+        - Make it look like the object was always part of the original photo
         - Return ONLY the edited image without any text explanation
         """
         
-        example = "Example: If a person's hat is marked with yellow and prompt is 'red baseball cap', replace only the yellow hat area with a red baseball cap while preserving the person's head shape, hair, and surrounding elements."
+        contextual_examples = """
+        Smart Context Examples:
+        - Yellow doodle around neck on business person → elegant pearl necklace or professional tie
+        - Yellow doodle around neck on young person at beach → casual shell necklace or colorful lei
+        - Yellow doodle on face at party → fun face paint or stylish glasses
+        - Yellow doodle on wrist → watch, bracelet, or wristband matching their style
+        - Rough yellow circle on shirt → button, pin, or logo appropriate for the setting
+        """
+        
+        example = "Example: If user doodles a rough curved line around someone's neck and prompt is 'necklace', analyze the person's style/setting and create an appropriate necklace - elegant pearls for formal setting, casual beads for casual setting, matching the image's lighting and style perfectly."
         
         # Add diagnostic information if yellow pixels are missing
         if not has_yellow:
             print("WARNING: No significant yellow pixels detected in mask!")
-            enhanced_prompt = f"{master_prompt} {prompt}.\n\n{shape_recognition}\n{precision_instructions}\n\n{example}\n\nIMPORTANT: Look carefully for ANY yellow markings, lines, or highlighted areas in this image, even faint ones. The yellow color indicates exactly where to apply changes. If yellow areas are subtle, Return only the edited image."
+            enhanced_prompt = f"{master_prompt} {prompt}.\n\n{shape_recognition}\n{precision_instructions}\n\n{contextual_examples}\n\n{example}\n\nIMPORTANT: Look carefully for ANY yellow doodle markings in this image, even rough or faint ones. Interpret these organic doodles as real objects that should fit naturally in this scene. Return only the edited image."
         else:
-            enhanced_prompt = f"{master_prompt} {prompt}.\n\n{shape_recognition}\n{precision_instructions}\n\n{example}\n\nFocus on the bright yellow areas which clearly indicate the regions to be replaced. Return only the edited image without text."
+            enhanced_prompt = f"{master_prompt} {prompt}.\n\n{shape_recognition}\n{precision_instructions}\n\n{contextual_examples}\n\n{example}\n\nAnalyze the yellow doodle areas and create realistic objects that fit perfectly with the scene's context, style, and lighting. Return only the edited image."
         
         print(f"Sending prompt to Gemini API: {enhanced_prompt}")
         
