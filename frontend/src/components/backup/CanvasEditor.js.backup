@@ -1,0 +1,503 @@
+import React, { useRef, useEffect, useState, useCallback } from 'react';
+import { Stage, Layer, Image, Line } from 'react-konva';
+
+const CanvasEditor = ({ imageSrc, onMaskChange, onDrawingChange }) => {
+  // State for image and canvas
+  const [image, setImage] = useState(null);
+  const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 });
+  const [scale, setScale] = useState(1);
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [maskedImagePreview, setMaskedImagePreview] = useState(null);
+  
+  // State for drawing
+  const [brushSize, setBrushSize] = useState(20);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [lines, setLines] = useState([]);
+  const [currentLine, setCurrentLine] = useState(null);
+  
+  // Refs
+  const stageRef = useRef(null);
+  const containerRef = useRef(null);
+  const imageLayerRef = useRef(null);
+  const maskLayerRef = useRef(null);
+
+  // Load image when source changes
+  useEffect(() => {
+    if (!imageSrc) return;
+    
+    console.log('Loading image:', imageSrc);
+    const img = new window.Image();
+    img.crossOrigin = "Anonymous";
+    img.src = imageSrc;
+    
+    img.onload = () => {
+      console.log('Image loaded, dimensions:', img.width, 'x', img.height);
+      setImage(img);
+      
+      // Calculate aspect ratio and set appropriate canvas size
+      const maxWidth = 800;
+      const maxHeight = 600;
+      let newWidth = img.width;
+      let newHeight = img.height;
+      
+      if (newWidth > maxWidth) {
+        const scale = maxWidth / newWidth;
+        newWidth = maxWidth;
+        newHeight = Math.floor(img.height * scale);
+      }
+      
+      if (newHeight > maxHeight) {
+        const scale = maxHeight / newHeight;
+        newHeight = maxHeight;
+        newWidth = Math.floor(newWidth * scale);
+      }
+      
+      setCanvasSize({
+        width: newWidth,
+        height: newHeight
+      });
+      
+      // Reset view and clear any previous drawings
+      setScale(1);
+      setPosition({ x: 0, y: 0 });
+      setLines([]);
+      setCurrentLine(null);
+      
+      // Clear any existing mask when loading a new image
+      setMaskedImagePreview(null);
+      onMaskChange(null);
+      
+      // Reset the mask availability flag
+      window.nanoBananaMaskAvailable = false;
+      console.log('Mask availability reset on new image load');
+    };
+    
+    img.onerror = () => {
+      console.error('Failed to load image');
+    };
+  }, [imageSrc, onMaskChange]);
+
+  // Drawing handlers
+  const handleMouseDown = (e) => {
+    if (!image) return;
+    
+    // Only handle left mouse button
+    if (e.evt.button !== 0) return;
+    
+    const pos = e.target.getStage().getPointerPosition();
+    setIsDrawing(true);
+    
+    // Notify parent component about drawing status if callback exists
+    if (typeof onDrawingChange === 'function') {
+      onDrawingChange(true);
+    }
+    
+    const newLine = {
+      points: [pos.x, pos.y],
+      brushSize: brushSize,
+      stroke: '#FFFF00', // Bright yellow
+      opacity: 0.8, // Higher opacity
+      tension: 0.5,
+      lineCap: 'round',
+      lineJoin: 'round',
+      globalCompositeOperation: 'source-over'
+    };
+    
+    setCurrentLine(newLine);
+    console.log('Started drawing at', pos.x, pos.y);
+  };
+
+  const handleMouseMove = (e) => {
+    if (!isDrawing || !currentLine) return;
+    
+    const stage = e.target.getStage();
+    const point = stage.getPointerPosition();
+    
+    // Add point to current line
+    const updatedLine = {
+      ...currentLine,
+      points: [...currentLine.points, point.x, point.y]
+    };
+    
+    setCurrentLine(updatedLine);
+  };
+
+  const handleMouseUp = () => {
+    if (!isDrawing || !currentLine) return;
+    
+    setIsDrawing(false);
+    
+    // Add completed line to array
+    setLines(prevLines => [...prevLines, currentLine]);
+    
+    // Set a timer to generate the mask after React state updates
+    setTimeout(() => {
+      console.log('Mouse up, generating mask');
+      generateMask();
+    }, 100);
+    
+    setCurrentLine(null);
+    
+    // Notify parent component about drawing state
+    if (typeof onDrawingChange === 'function') {
+      onDrawingChange(false);
+    }
+  };
+  
+  // Generate mask whenever lines change - but only for initial changes
+  // Mouse up handler now directly generates the mask for better timing
+  useEffect(() => {
+    console.log(`Lines effect triggered: ${lines.length} lines`);
+    
+    // Only clear mask when lines are explicitly emptied
+    if (lines.length === 0 && image) {
+      console.log('No lines present, clearing mask');
+      setMaskedImagePreview(null);
+      window.lastValidMask = null;
+      window.nanoBananaMaskAvailable = false;
+      
+      if (typeof onMaskChange === 'function') {
+        onMaskChange(null);
+      }
+    } 
+    // Only generate on first line drawn (rest handled by mouseUp)
+    else if (lines.length === 1 && image) {
+      console.log('First line drawn, generating initial mask');
+      setTimeout(() => {
+        generateMask();
+      }, 50);
+    }
+  }, [lines, image]);
+
+  // Generate mask image from drawings - improved approach
+  const generateMask = () => {
+    try {
+      if (!image) {
+        console.log('No image loaded, cannot generate mask');
+        return;
+      }
+      
+      if (lines.length === 0) {
+        console.log('No lines drawn, clearing mask');
+        setMaskedImagePreview(null);
+        onMaskChange(null);
+        window.nanoBananaMaskAvailable = false;
+        return;
+      }
+      
+      // Debug check for valid lines data
+      console.log(`Generating mask with ${lines.length} lines`);
+      let totalPoints = 0;
+      lines.forEach((line, i) => {
+        if (!line || !line.points) {
+          console.log(`Line ${i} is invalid:`, line);
+        } else {
+          totalPoints += line.points.length / 2; // Points are stored as [x,y] pairs
+        }
+      });
+      console.log(`Total drawing points: ${totalPoints}`);
+      
+      // Don't proceed if no valid drawing points
+      if (totalPoints === 0) {
+        console.log('No valid drawing points found, skipping mask generation');
+        return;
+      }
+      
+      // Step 1: Create a new canvas to manually draw the mask
+      const canvas = document.createElement('canvas');
+      canvas.width = canvasSize.width;
+      canvas.height = canvasSize.height;
+      const ctx = canvas.getContext('2d');
+      
+      // Step 2: Draw the original image
+      ctx.drawImage(image, 0, 0, canvasSize.width, canvasSize.height);
+      
+      // Step 3: Draw the mask areas with a very bright, solid yellow
+      ctx.strokeStyle = '#FFFF00'; // Bright yellow
+      ctx.fillStyle = '#FFFF00';   // Bright yellow
+      ctx.lineWidth = 3;
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      
+      // Draw all lines
+      let maskedPixelsCount = 0;
+      lines.forEach(line => {
+        if (!line || !line.points || line.points.length < 2) return;
+        
+        // For each line, we'll draw filled circles at each point to make a solid mask
+        const points = line.points;
+        const radius = line.brushSize / 2;
+        
+        for (let i = 0; i < points.length; i += 2) {
+          const x = points[i];
+          const y = points[i + 1];
+          
+          if (isNaN(x) || isNaN(y)) continue;
+          
+          ctx.beginPath();
+          ctx.arc(x, y, radius, 0, Math.PI * 2);
+          ctx.fill();
+          maskedPixelsCount++;
+        }
+      });
+      
+      console.log(`Mask contains approximately ${maskedPixelsCount} points`);
+      
+      // Add highlight border around mask areas
+      ctx.strokeStyle = '#FF0000'; // Red border
+      ctx.lineWidth = 2;
+      lines.forEach(line => {
+        if (!line || !line.points || line.points.length < 4) return;
+        
+        const points = line.points;
+        ctx.beginPath();
+        ctx.moveTo(points[0], points[1]);
+        for (let i = 2; i < points.length; i += 2) {
+          if (isNaN(points[i]) || isNaN(points[i + 1])) continue;
+          ctx.lineTo(points[i], points[i + 1]);
+        }
+        ctx.stroke();
+      });
+      
+      // Step 4: Add text annotation to make it even clearer
+      ctx.font = 'bold 16px Arial';
+      ctx.fillStyle = '#FF0000';
+      ctx.fillText('EDIT THIS AREA', 10, 20);
+      
+      // Add visual indicator of mask coverage
+      if (maskedPixelsCount > 0) {
+        ctx.fillStyle = 'rgba(255, 0, 0, 0.6)';
+        ctx.font = 'bold 14px Arial';
+        ctx.fillText(`Mask: ${maskedPixelsCount} pixels covered`, 10, 50);
+        
+        // Draw semi-transparent overlay to better visualize the areas
+        lines.forEach(line => {
+          if (!line || !line.points || line.points.length < 4) return;
+          
+          // Draw semi-transparent highlight over the masked areas
+          ctx.fillStyle = 'rgba(255, 255, 0, 0.2)';
+          ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
+          ctx.lineWidth = 2;
+          
+          const points = line.points;
+          if (points.length >= 6) {  // At least 3 points to form an area
+            ctx.beginPath();
+            ctx.moveTo(points[0], points[1]);
+            for (let i = 2; i < points.length; i += 2) {
+              if (isNaN(points[i]) || isNaN(points[i + 1])) continue;
+              ctx.lineTo(points[i], points[i + 1]);
+            }
+            // Close the path back to the first point
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+          }
+        });
+      }
+      
+      // Step 5: Get the data URL
+      const dataURL = canvas.toDataURL('image/png', 1.0);
+      console.log('Generated combined image with highlighted mask');
+      
+      // Set the preview image
+      setMaskedImagePreview(dataURL);
+      
+      // Store in global variable to prevent loss on rerender
+      window.lastValidMask = dataURL;
+      
+      // Add a flag to the window object to indicate a mask is available
+      window.nanoBananaMaskAvailable = true;
+      
+      // IMPORTANT: Send combined mask to parent component AFTER storing globally
+      // This ensures we always have a backup
+      onMaskChange(dataURL);
+      
+      // Debug information
+      console.log('Mask generation completed successfully');
+      console.log('Mask data length:', dataURL.length);
+      
+    } catch (error) {
+      console.error('Error generating mask:', error);
+    }
+  };
+
+  const clearMask = () => {
+    setLines([]);
+    setCurrentLine(null);
+    setMaskedImagePreview(null);
+    // Clear mask in parent component
+    onMaskChange(null);
+    // Reset the mask availability flag
+    window.nanoBananaMaskAvailable = false;
+    console.log('Mask cleared, reset availability flag');
+  };
+
+  const handleWheel = (e) => {
+    e.evt.preventDefault();
+    
+    const scaleBy = 1.1;
+    const stage = stageRef.current;
+    const oldScale = scale;
+    
+    const pointer = stage.getPointerPosition();
+    const mousePointTo = {
+      x: (pointer.x - position.x) / oldScale,
+      y: (pointer.y - position.y) / oldScale
+    };
+    
+    // Calculate new scale
+    const newScale = e.evt.deltaY < 0 ? oldScale * scaleBy : oldScale / scaleBy;
+    
+    // Calculate new position
+    const newPos = {
+      x: pointer.x - mousePointTo.x * newScale,
+      y: pointer.y - mousePointTo.y * newScale
+    };
+    
+    setScale(newScale);
+    setPosition(newPos);
+  };
+
+  const resetView = () => {
+    setScale(1);
+    setPosition({ x: 0, y: 0 });
+  };
+
+  return (
+    <div ref={containerRef} className="canvas-editor">
+      <div className="controls">
+        <button onClick={resetView}>Reset View</button>
+        <div className="brush-control">
+          <label>Brush Size: {brushSize}px</label>
+          <input
+            type="range"
+            min="5"
+            max="50"
+            value={brushSize}
+            onChange={(e) => setBrushSize(parseInt(e.target.value))}
+          />
+        </div>
+        <button onClick={clearMask}>Clear Mask</button>
+      </div>
+      
+      <div className="stage-container" style={{ border: '1px solid #ddd', marginTop: '10px' }}>
+        <Stage
+          width={canvasSize.width}
+          height={canvasSize.height}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+          onWheel={handleWheel}
+          scaleX={scale}
+          scaleY={scale}
+          x={position.x}
+          y={position.y}
+          ref={stageRef}
+        >
+          {/* Image Layer */}
+          <Layer ref={imageLayerRef}>
+            {image && (
+              <Image 
+                image={image} 
+                width={canvasSize.width}
+                height={canvasSize.height}
+              />
+            )}
+          </Layer>
+          
+          {/* Drawing Layer */}
+          <Layer ref={maskLayerRef}>
+            {/* Show all completed lines */}
+            {lines.map((line, i) => (
+              <Line
+                key={i}
+                points={line.points}
+                stroke="#FFFF00" // Bright yellow
+                strokeWidth={line.brushSize}
+                tension={line.tension}
+                lineCap={line.lineCap}
+                lineJoin={line.lineJoin}
+                opacity={0.8} // Higher opacity
+                globalCompositeOperation={line.globalCompositeOperation}
+              />
+            ))}
+            
+            {/* Show current line being drawn */}
+            {currentLine && (
+              <Line
+                points={currentLine.points}
+                stroke="#FFFF00" // Bright yellow
+                strokeWidth={currentLine.brushSize}
+                tension={currentLine.tension}
+                lineCap={currentLine.lineCap}
+                lineJoin={currentLine.lineJoin}
+                opacity={0.8} // Higher opacity
+                globalCompositeOperation={currentLine.globalCompositeOperation}
+              />
+            )}
+          </Layer>
+        </Stage>
+      </div>
+      
+      <div style={{ marginTop: '10px', fontSize: '0.9em', color: '#666' }}>
+        {image ? 'Click and drag to draw mask. Use mouse wheel to zoom.' : 'Please upload an image.'}
+        {lines.length > 0 && (
+          <span style={{ marginLeft: '10px', color: '#28a745' }}>
+            ✓ {lines.length} line{lines.length !== 1 ? 's' : ''} drawn
+          </span>
+        )}
+      </div>
+      
+      <div style={{ marginTop: '5px', fontSize: '0.9em' }}>
+        <button 
+          onClick={() => {
+            console.log('Debug info:');
+            console.log('- Lines drawn:', lines.length);
+            console.log('- Mask available:', !!maskedImagePreview);
+            console.log('- Window flag:', window.nanoBananaMaskAvailable);
+            console.log('- Last valid mask:', !!window.lastValidMask);
+            
+            // Force regenerate mask if needed
+            if (lines.length > 0) {
+              console.log('Force regenerating mask...');
+              generateMask();
+            }
+          }}
+          style={{
+            backgroundColor: '#f8f9fa',
+            border: '1px solid #dee2e6',
+            borderRadius: '3px',
+            padding: '3px 8px',
+            fontSize: '12px',
+            cursor: 'pointer'
+          }}
+        >
+          Refresh Mask
+        </button>
+      </div>
+      
+      {/* Masked Image Preview */}
+      {maskedImagePreview && (
+        <div className="mask-preview">
+          <h3>Masked Image Preview (This is what will be sent to the API):</h3>
+          <img 
+            src={maskedImagePreview} 
+            alt="Masked Preview" 
+            style={{ 
+              maxWidth: '100%', 
+              maxHeight: '400px', 
+              border: '1px solid #ff0000',
+              marginTop: '15px'
+            }} 
+          />
+          <div style={{ marginTop: '5px', fontSize: '0.9em', color: '#666' }}>
+            ⬆️ This is the exact image being sent to the API for processing
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default CanvasEditor;
