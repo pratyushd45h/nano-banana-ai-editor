@@ -17,11 +17,12 @@ if os.getenv('ENVIRONMENT') == 'production':
     # In production, allow your frontend domain and common development origins
     allowed_origins = [
         "https://nano-banana-frontend.onrender.com",
-        "https://nano-banana.onrender.com", 
-        os.getenv('FRONTEND_URL', 'https://your-frontend-app.onrender.com')
+        "https://nano-banana-ai-editor-frontend.onrender.com", 
+        "https://nano-banana.onrender.com",
+        os.getenv('FRONTEND_URL', 'https://nano-banana-ai-editor.onrender.com')
     ]
-    # Remove None values
-    allowed_origins = [origin for origin in allowed_origins if origin and 'your-frontend-app' not in origin]
+    # Remove None values and duplicates
+    allowed_origins = list(set([origin for origin in allowed_origins if origin and 'your-frontend-app' not in origin]))
     CORS(app, origins=allowed_origins)
     print(f"CORS configured for production with origins: {allowed_origins}")
 else:
