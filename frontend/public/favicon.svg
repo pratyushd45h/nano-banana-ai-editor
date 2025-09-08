@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="bananaGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FFE135;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#FFC107;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background circle -->
+  <circle cx="50" cy="50" r="45" fill="url(#bgGradient)" stroke="#5a67d8" stroke-width="2"/>
+  
+  <!-- Banana shape -->
+  <path d="M35 25 Q45 20, 55 25 Q65 30, 70 40 Q75 50, 70 60 Q65 70, 55 75 Q45 80, 35 75 Q25 70, 20 60 Q15 50, 20 40 Q25 30, 35 25" 
+        fill="url(#bananaGradient)" 
+        stroke="#E6A700" 
+        stroke-width="1"/>
+  
+  <!-- Banana highlight -->
+  <ellipse cx="45" cy="45" rx="8" ry="15" fill="#FFF176" opacity="0.6" transform="rotate(-30 45 45)"/>
+  
+  <!-- Small sparkles for AI magic -->
+  <circle cx="25" cy="30" r="2" fill="#ffffff" opacity="0.8"/>
+  <circle cx="75" cy="35" r="1.5" fill="#ffffff" opacity="0.6"/>
+  <circle cx="30" cy="75" r="1" fill="#ffffff" opacity="0.7"/>
+  <circle cx="70" cy="70" r="1.5" fill="#ffffff" opacity="0.5"/>
+</svg>
